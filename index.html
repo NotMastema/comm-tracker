@@ -18,6 +18,13 @@
         .card.warning { border-left-color: #ff9800; }
         .card-label { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
         .card-value { font-size: 24px; font-weight: 600; color: #1a1a1a; }
+        .add-deal-form { background: #f8f9fa; padding: 20px; border-radius: 6px; margin-bottom: 20px; }
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 15px; }
+        .form-group { display: flex; flex-direction: column; }
+        .form-group label { font-size: 12px; font-weight: 500; margin-bottom: 5px; color: #333; }
+        .form-group input, .form-group select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .add-btn { background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .section-toggle { background: none; border: none; color: #4CAF50; font-size: 14px; cursor: pointer; padding: 0; margin-bottom: 15px; text-decoration: underline; }
         .deals-section { margin-bottom: 30px; }
         .deal-item { background: #f8f9fa; padding: 15px; border-radius: 4px; margin-bottom: 10px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 120px; gap: 15px; align-items: center; }
         .deal-item.churned { opacity: 0.5; background: #ffeaea; }
@@ -46,7 +53,7 @@
 <body>
     <div id="root"></div>
     <script type="text/babel">
-        const { useState, useMemo } = React;
+        const { useState, useMemo, useEffect } = React;
         
         const MONTHLY_THRESHOLD = 6666.67;
         const COMMISSION_RATE = 0.20;
@@ -93,8 +100,46 @@
         ];
         
         const CommissionTracker = () => {
-            const [deals, setDeals] = useState(initialDeals);
+            const [deals, setDeals] = useState(() => {
+                const saved = localStorage.getItem('commissionDeals');
+                return saved ? JSON.parse(saved) : initialDeals;
+            });
             const [expandedMonths, setExpandedMonths] = useState({});
+            const [showDeals, setShowDeals] = useState(false);
+            const [newDeal, setNewDeal] = useState({
+                name: '',
+                close: new Date().toISOString().split('T')[0],
+                subscription: '',
+                setup: '',
+                cycle: 'six-month'
+            });
+            
+            useEffect(() => {
+                localStorage.setItem('commissionDeals', JSON.stringify(deals));
+            }, [deals]);
+            
+            const addNewDeal = () => {
+                if (!newDeal.name || !newDeal.subscription) return;
+                
+                const deal = {
+                    id: Math.max(...deals.map(d => d.id), 0) + 1,
+                    name: newDeal.name,
+                    close: newDeal.close,
+                    subscription: parseFloat(newDeal.subscription),
+                    setup: parseFloat(newDeal.setup) || 0,
+                    cycle: newDeal.cycle,
+                    churnDate: null
+                };
+                
+                setDeals([...deals, deal]);
+                setNewDeal({
+                    name: '',
+                    close: new Date().toISOString().split('T')[0],
+                    subscription: '',
+                    setup: '',
+                    cycle: 'six-month'
+                });
+            };
             
             const setChurnDate = (dealId, date) => {
                 setDeals(deals.map(d => d.id === dealId ? {...d, churnDate: date} : d));
@@ -198,9 +243,65 @@
                         </div>
                     </div>
                     
+                    <div className="add-deal-form">
+                        <h2 style={{marginBottom: '15px', fontSize: '18px'}}>Add New Deal</h2>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Customer Name</label>
+                                <input 
+                                    type="text" 
+                                    value={newDeal.name}
+                                    onChange={(e) => setNewDeal({...newDeal, name: e.target.value})}
+                                    placeholder="John Smith"
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Close Date</label>
+                                <input 
+                                    type="date" 
+                                    value={newDeal.close}
+                                    onChange={(e) => setNewDeal({...newDeal, close: e.target.value})}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Subscription Amount</label>
+                                <input 
+                                    type="number" 
+                                    value={newDeal.subscription}
+                                    onChange={(e) => setNewDeal({...newDeal, subscription: e.target.value})}
+                                    placeholder="600"
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Setup Fee</label>
+                                <input 
+                                    type="number" 
+                                    value={newDeal.setup}
+                                    onChange={(e) => setNewDeal({...newDeal, setup: e.target.value})}
+                                    placeholder="100"
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Billing Cycle</label>
+                                <select 
+                                    value={newDeal.cycle}
+                                    onChange={(e) => setNewDeal({...newDeal, cycle: e.target.value})}
+                                >
+                                    <option value="monthly">Monthly</option>
+                                    <option value="six-month">6 Months</option>
+                                    <option value="yearly">Yearly</option>
+                                    <option value="two-year">2 Years</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button className="add-btn" onClick={addNewDeal}>Add Deal</button>
+                    </div>
+                    
                     <div className="deals-section">
-                        <h2 style={{marginBottom: '15px', fontSize: '18px'}}>All Deals</h2>
-                        {deals.map(deal => (
+                        <button className="section-toggle" onClick={() => setShowDeals(!showDeals)}>
+                            {showDeals ? 'Hide' : 'Show'} All Deals ({deals.length})
+                        </button>
+                        {showDeals && deals.map(deal => (
                             <div key={deal.id} className={`deal-item ${deal.churnDate ? 'churned' : ''}`}>
                                 <div>
                                     <div className="deal-name">{deal.name}</div>
@@ -221,13 +322,11 @@
                                 </div>
                                 <div>
                                     {!deal.churnDate ? (
-                                        <>
-                                            <input 
-                                                type="date" 
-                                                className="churn-input"
-                                                onChange={(e) => e.target.value && setChurnDate(deal.id, e.target.value)}
-                                            />
-                                        </>
+                                        <input 
+                                            type="date" 
+                                            className="churn-input"
+                                            onChange={(e) => e.target.value && setChurnDate(deal.id, e.target.value)}
+                                        />
                                     ) : (
                                         <button className="unchurn-btn" onClick={() => removeChurn(deal.id)}>
                                             Reactivate
