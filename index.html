@@ -28,6 +28,14 @@
         .form-group input, .form-group select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
         .add-btn { background: #6537ca; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; }
         .section-toggle { background: none; border: none; color: #6537ca; font-size: 14px; cursor: pointer; padding: 0; margin-bottom: 15px; text-decoration: underline; }
+        .sync-status { background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #05c68e; }
+        .sync-status.error { border-left-color: #f15d55; }
+        .sync-status.loading { border-left-color: #daba21; }
+        .sync-info { font-size: 13px; color: #666; }
+        .refresh-btn { background: #6537ca; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+        .refresh-btn:hover { background: #5429ab; }
+        .refresh-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .logo-text { font-size: 32px; font-weight: 700; color: #05c68e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; }
         .deals-section { margin-bottom: 30px; }
         .deal-item { background: #f8f9fa; padding: 15px; border-radius: 4px; margin-bottom: 10px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 120px; gap: 15px; align-items: center; }
         .deal-item.churned { opacity: 0.5; background: #ffeaea; }
@@ -61,11 +69,16 @@
     <div id="root"></div>
     <script type="text/babel">
         const { useState, useMemo, useEffect } = React;
-        
+
         const MONTHLY_THRESHOLD = 6666.67;
         const COMMISSION_RATE = 0.20;
-        
-        const initialDeals = [
+
+        // IMPORTANT: After deploying your Google Apps Script, paste the Web App URL here
+        // It will look like: https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec
+        const GOOGLE_APPS_SCRIPT_URL = 'PASTE_YOUR_APPS_SCRIPT_URL_HERE';
+
+        // Fallback deals in case the Google Apps Script fails or isn't configured yet
+        const fallbackDeals = [
             {id: 1, name: "Brian Shisler", close: "2025-07-01", subscription: 100, setup: 250, cycle: "monthly", churnDate: null},
             {id: 2, name: "Kelly Solberg", close: "2025-07-01", subscription: 1200, setup: 0, cycle: "yearly", churnDate: null},
             {id: 3, name: "Scott Armstrong", close: "2025-07-01", subscription: 600, setup: 100, cycle: "six-month", churnDate: null},
@@ -107,10 +120,10 @@
         ];
         
         const CommissionTracker = () => {
-            const [deals, setDeals] = useState(() => {
-                const saved = localStorage.getItem('commissionDeals');
-                return saved ? JSON.parse(saved) : initialDeals;
-            });
+            const [deals, setDeals] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [lastSync, setLastSync] = useState(null);
             const [expandedYears, setExpandedYears] = useState({'2025': true});
             const [expandedMonths, setExpandedMonths] = useState({});
             const [showDeals, setShowDeals] = useState(false);
@@ -122,9 +135,54 @@
                 cycle: 'six-month'
             });
             
+            // Fetch deals from Google Sheets on component mount
             useEffect(() => {
-                localStorage.setItem('commissionDeals', JSON.stringify(deals));
+                fetchDealsFromSheet();
+            }, []);
+
+            // Save deals to localStorage when they change
+            useEffect(() => {
+                if (deals.length > 0) {
+                    localStorage.setItem('commissionDeals', JSON.stringify(deals));
+                }
             }, [deals]);
+
+            const fetchDealsFromSheet = async () => {
+                setLoading(true);
+                setError(null);
+
+                try {
+                    // Check if Apps Script URL is configured
+                    if (!GOOGLE_APPS_SCRIPT_URL || GOOGLE_APPS_SCRIPT_URL === 'PASTE_YOUR_APPS_SCRIPT_URL_HERE') {
+                        console.log('Apps Script URL not configured, using fallback data');
+                        const saved = localStorage.getItem('commissionDeals');
+                        setDeals(saved ? JSON.parse(saved) : fallbackDeals);
+                        setLastSync(new Date().toISOString());
+                        setLoading(false);
+                        return;
+                    }
+
+                    const response = await fetch(GOOGLE_APPS_SCRIPT_URL);
+                    const result = await response.json();
+
+                    if (result.success && result.data) {
+                        setDeals(result.data);
+                        setLastSync(result.timestamp || new Date().toISOString());
+                        console.log(`Loaded ${result.data.length} deals from Google Sheets`);
+                    } else {
+                        throw new Error(result.error || 'Failed to fetch deals');
+                    }
+                } catch (err) {
+                    console.error('Error fetching from Google Sheets:', err);
+                    setError(err.message);
+
+                    // Fall back to localStorage or fallback deals
+                    const saved = localStorage.getItem('commissionDeals');
+                    setDeals(saved ? JSON.parse(saved) : fallbackDeals);
+                } finally {
+                    setLoading(false);
+                }
+            };
             
             const addNewDeal = () => {
                 if (!newDeal.name || !newDeal.subscription) return;
@@ -249,13 +307,34 @@
             return (
                 <div className="container">
                     <div className="header">
-                        <img src="data:image/png;base64,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+UD+n1L/H+rj/9Xh/x2v/8+Ufr+Y/93if+WS/yjv/4Os/xvC/23V/1n+f97+XxX+X//f/C/t/7lM/27k/mGc/5fT/1vT//e7/t/G/dv+f03/v/b91/y/0f/rq/+X6f9nrf+XC/3/Kvz/Mv//u/1/N//fbfh/rvb/Jvv/dvv/fvP/evn/ev1/jvu/E/2/W/pvdv+vwP8vif/fq+j/Jfz/3e7/l/T/cu//j+n/ves++v/h+P+D1f9n9f+b5f9fpf8/a/8/Xv+/q+j/lf//Xfl/d/1/D/y//Pt/gfy/7f3/rf6/u/xfF/f/K6v/Eul/xfH+/0D0/7Lmf9v7fwX0/0XS/02G/y+o/x+j/5/b/++G/19Z/P+s/V9b+v8V7v+m9f978//j/f92/P82/L+6/n9F/L8W/L/G/P9M73cT/X/L/b/S/n8l9/8n+vj/gfn/+P/8//o+w8I7/4P/SV7+H9T/n7T/n7H/Pxf+f5/9P4F/+5X/v0L/r7P/r+j/OfD/m/L/pfT/guj/c/H/R+n/+/v/D+P/h/P/W+//TdH/d0X/T+X/Kuj/U+r/O/X/b+j/m+j/peL/l8n/l5v/99P/t87/L+n/b8X/J+T/s/P/mfH/cuD/s+n/hdr/W/L/JPb/+vy/ZP5/HuH/6+n/O9r/q/r/h/b/+/n/Ru//s/D/c/r/M/T/W+n/b93/F5j/n6H/z8D/z4r/L4z/N8f/zyH/P5X/j/f/8/D/3fH/yvj/hPj/fPb/PP7/rPv/guz/Ze7/z+j/u9L/b+r/s/f/Suz/hf3/Fvv/xfn/Avx/gfH/M+n/i/X/Z+7/O8X/c/v/M+b/Wfn/kvj/Iv//av//Av5/WP8f3v9P3v8XlP+vTP8f2v8f6/+B/P+8/n/h/P+C/r9T/H+x+n+x/j9//58f/y/S/8eT/y+S/z+S/h+O/x+u/w/v/wn1///X/jdm+v/B+v/6+/+B/v9z/v9k+//1b/9/5f9f3P//vP3/5/X/Yf3//fb/w/j/z/D/XfX/p/D/5eP/L+j/7+v/5/z/s+v/3/f/u+3/Px/+/3P0/wt7/1P3/7C+f/38f+P/N98/d////M1//vzT/4/+Sv+fpf8/Xv+feP8fq/8/vv//vPz/Pv+/IP8/u/4/h/1/Nvy/LP//3P3/5+H/79v/l9T/7/f/x/z/0Pr/+P1Pvv/vb/7fgvT/8fz/cPv/zPx//P5/Wf8/v/+fsv///P6/Gv6/SP9/vPx/CfD/U/H/JfD/Bfv/ZPH/A/v/5fb/h9b/F/T/F+T/y+7/i8//F9T/n8X/R/f/o/H/A/P/cfv/svj/g/v/y///eP6/E/r/4/f/s/z/w/n/w/P/+/v/Zv//Pv//eP//t/v/i+f/S+r/z53/Lzb/33D+/8D8/+c=" className="logo" alt="Rejig.ai" />
+                        <div className="logo-text">rejig.ai</div>
                         <div className="header-text">
                             <h1>Commission Tracker</h1>
                             <p className="subtitle">Monthly threshold: {formatCurrency(MONTHLY_THRESHOLD)} | Commission rate: 20%</p>
                         </div>
                     </div>
                     
+
+                    {lastSync && (
+                        <div className={`sync-status ${loading ? 'loading' : error ? 'error' : ''}`}>
+                            <div className="sync-info">
+                                {loading ? (
+                                    'Syncing with Google Sheets...' 
+                                ) : error ? (
+                                    `Sync error: ${error}. Using cached data.`
+                                ) : (
+                                    `Last synced: ${new Date(lastSync).toLocaleString()} • ${deals.length} deals loaded`
+                                )}
+                            </div>
+                            <button
+                                className="refresh-btn"
+                                onClick={fetchDealsFromSheet}
+                                disabled={loading}
+                            >
+                                {loading ? 'Syncing...' : 'Refresh from Sheet'}
+                            </button>
+                        </div>
+                    )}
                     <div className="summary-cards">
                         <div className="card">
                             <div className="card-label">Active Deals</div>
