@@ -36,6 +36,21 @@
         .refresh-btn:hover { background: #5429ab; }
         .refresh-btn:disabled { background: #ccc; cursor: not-allowed; }
         .logo-text { font-size: 32px; font-weight: 700; color: #05c68e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; }
+        .current-month-card { background: linear-gradient(135deg, #6537ca 0%, #5429ab 100%); color: white; padding: 30px; border-radius: 8px; margin-bottom: 30px; }
+        .current-month-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .current-month-title { font-size: 24px; font-weight: 600; }
+        .selling-days-input { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 12px; border-radius: 4px; width: 120px; font-size: 14px; }
+        .selling-days-input::placeholder { color: rgba(255,255,255,0.7); }
+        .attainment-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .metric { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 6px; }
+        .metric-label { font-size: 12px; opacity: 0.9; margin-bottom: 5px; }
+        .metric-value { font-size: 28px; font-weight: 700; }
+        .metric-sub { font-size: 13px; opacity: 0.8; margin-top: 5px; }
+        .progress-bar-container { background: rgba(255,255,255,0.2); height: 12px; border-radius: 6px; overflow: hidden; margin-top: 15px; }
+        .progress-bar { background: #05c68e; height: 100%; transition: width 0.3s; }
+        .progress-bar.behind { background: #f15d55; }
+        .progress-bar.on-track { background: #05c68e; }
+        .progress-bar.ahead { background: #daba21; }
         .deals-section { margin-bottom: 30px; }
         .deal-item { background: #f8f9fa; padding: 15px; border-radius: 4px; margin-bottom: 10px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 120px; gap: 15px; align-items: center; }
         .deal-item.churned { opacity: 0.5; background: #ffeaea; }
@@ -75,7 +90,7 @@
 
         // IMPORTANT: After deploying your Google Apps Script, paste the Web App URL here
         // It will look like: https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec
-        const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzHARD8zhYWqNMwGahHTq0rdF-iwDzU464gRFBwtb1r6vdUM-9kn8qUzd-VY4ewp4jDIw/exec';
+        const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzzGs5fEx1ko33yot_9Q7kO55nK-XE7w_huQAOLLclI0QY2AnP12MorOlQkS6xpW8p3VQ/exec';
 
         // Fallback deals in case the Google Apps Script fails or isn't configured yet
         const fallbackDeals = [
@@ -127,6 +142,10 @@
             const [expandedYears, setExpandedYears] = useState({'2025': true});
             const [expandedMonths, setExpandedMonths] = useState({});
             const [showDeals, setShowDeals] = useState(false);
+            const [sellingDays, setSellingDays] = useState(() => {
+                const saved = localStorage.getItem('currentMonthSellingDays');
+                return saved ? JSON.parse(saved) : {};
+            });
             const [newDeal, setNewDeal] = useState({
                 name: '',
                 close: new Date().toISOString().split('T')[0],
@@ -146,6 +165,11 @@
                     localStorage.setItem('commissionDeals', JSON.stringify(deals));
                 }
             }, [deals]);
+
+            // Save selling days to localStorage when they change
+            useEffect(() => {
+                localStorage.setItem('currentMonthSellingDays', JSON.stringify(sellingDays));
+            }, [sellingDays]);
 
             const fetchDealsFromSheet = async () => {
                 setLoading(true);
@@ -280,6 +304,60 @@
             
             const totalCommission = Object.values(yearlyBreakdown).reduce((sum, y) => sum + y.commission, 0);
             const activeDeals = deals.filter(d => !d.churnDate || new Date(d.churnDate) > new Date());
+
+            // Calculate business days elapsed in current month (excluding weekends)
+            const getBusinessDaysElapsed = () => {
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = now.getMonth();
+                const today = now.getDate();
+
+                let businessDays = 0;
+                for (let day = 1; day <= today; day++) {
+                    const date = new Date(year, month, day);
+                    const dayOfWeek = date.getDay();
+                    // Skip weekends (0 = Sunday, 6 = Saturday)
+                    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                        businessDays++;
+                    }
+                }
+                return businessDays;
+            };
+
+            // Current month attainment
+            const currentMonthData = useMemo(() => {
+                const now = new Date();
+                const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                const currentMonth = monthlyBreakdown[currentMonthKey] || { revenue: 0, commission: 0, deals: [] };
+
+                const businessDaysElapsed = getBusinessDaysElapsed();
+                const totalSellingDays = sellingDays[currentMonthKey] || 20; // Default to 20 if not set
+
+                const daysProgress = (businessDaysElapsed / totalSellingDays) * 100;
+                const revenueProgress = (currentMonth.revenue / MONTHLY_THRESHOLD) * 100;
+                const attainment = totalSellingDays > 0 ? (revenueProgress / daysProgress) * 100 : 0;
+
+                const expectedRevenue = (MONTHLY_THRESHOLD / totalSellingDays) * businessDaysElapsed;
+                const variance = currentMonth.revenue - expectedRevenue;
+
+                return {
+                    monthKey: currentMonthKey,
+                    revenue: currentMonth.revenue,
+                    commission: currentMonth.commission,
+                    businessDaysElapsed,
+                    totalSellingDays,
+                    daysProgress,
+                    revenueProgress,
+                    attainment,
+                    expectedRevenue,
+                    variance,
+                    deals: currentMonth.deals || []
+                };
+            }, [monthlyBreakdown, sellingDays]);
+
+            const updateSellingDays = (monthKey, days) => {
+                setSellingDays({...sellingDays, [monthKey]: parseInt(days) || 0});
+            };
             
             const formatCurrency = (amount) => {
                 return new Intl.NumberFormat('en-US', {
@@ -335,6 +413,84 @@
                             </button>
                         </div>
                     )}
+
+                    <div className="current-month-card">
+                        <div className="current-month-header">
+                            <div className="current-month-title">
+                                {formatMonth(currentMonthData.monthKey)} - Attainment
+                            </div>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                <label style={{fontSize: '14px', opacity: 0.9}}>Selling Days:</label>
+                                <input
+                                    type="number"
+                                    className="selling-days-input"
+                                    value={currentMonthData.totalSellingDays}
+                                    onChange={(e) => updateSellingDays(currentMonthData.monthKey, e.target.value)}
+                                    placeholder="20"
+                                    min="1"
+                                    max="31"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="attainment-metrics">
+                            <div className="metric">
+                                <div className="metric-label">Current Revenue</div>
+                                <div className="metric-value">{formatCurrency(currentMonthData.revenue)}</div>
+                                <div className="metric-sub">
+                                    {currentMonthData.revenue >= MONTHLY_THRESHOLD ?
+                                        `+${formatCurrency(currentMonthData.revenue - MONTHLY_THRESHOLD)} over threshold` :
+                                        `${formatCurrency(MONTHLY_THRESHOLD - currentMonthData.revenue)} to threshold`
+                                    }
+                                </div>
+                            </div>
+
+                            <div className="metric">
+                                <div className="metric-label">Days Elapsed</div>
+                                <div className="metric-value">
+                                    {currentMonthData.businessDaysElapsed} / {currentMonthData.totalSellingDays}
+                                </div>
+                                <div className="metric-sub">
+                                    {currentMonthData.daysProgress.toFixed(0)}% of month complete
+                                </div>
+                            </div>
+
+                            <div className="metric">
+                                <div className="metric-label">Attainment</div>
+                                <div className="metric-value">
+                                    {currentMonthData.attainment.toFixed(0)}%
+                                </div>
+                                <div className="metric-sub">
+                                    {currentMonthData.variance >= 0 ?
+                                        `${formatCurrency(currentMonthData.variance)} ahead` :
+                                        `${formatCurrency(Math.abs(currentMonthData.variance))} behind`
+                                    }
+                                </div>
+                            </div>
+
+                            <div className="metric">
+                                <div className="metric-label">Commission (MTD)</div>
+                                <div className="metric-value">{formatCurrency(currentMonthData.commission)}</div>
+                                <div className="metric-sub">
+                                    {currentMonthData.deals.length} deals closed
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="progress-bar-container">
+                            <div
+                                className={`progress-bar ${
+                                    currentMonthData.attainment >= 100 ? 'ahead' :
+                                    currentMonthData.attainment >= 90 ? 'on-track' : 'behind'
+                                }`}
+                                style={{width: `${Math.min(currentMonthData.revenueProgress, 100)}%`}}
+                            />
+                        </div>
+                        <div style={{fontSize: '12px', marginTop: '10px', opacity: 0.9}}>
+                            Progress: {currentMonthData.revenueProgress.toFixed(1)}% of threshold goal
+                        </div>
+                    </div>
+
                     <div className="summary-cards">
                         <div className="card">
                             <div className="card-label">Active Deals</div>
