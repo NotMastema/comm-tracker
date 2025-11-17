@@ -51,15 +51,10 @@ function getMataDeals() {
   const deals = [];
   let idCounter = 1;
 
-  // Find column indices - try multiple column name variations
+  // Find column indices
+  // Note: "Month" column contains the actual close date
   const colIndices = {
-    month: headers.indexOf('Month'),
-    closeDate: Math.max(
-      headers.indexOf('Close Date'),
-      headers.indexOf('Closed Date'),
-      headers.indexOf('Date Closed'),
-      headers.indexOf('Date')
-    ),
+    closeDate: headers.indexOf('Month'), // Primary close date column
     customer: headers.indexOf('Customer'),
     rep: headers.indexOf('Rep'),
     setupFee: headers.indexOf('Setup Fee'),
@@ -75,7 +70,6 @@ function getMataDeals() {
     // Only process Mata's deals
     if (rep !== 'Mata') continue;
 
-    const month = row[colIndices.month];
     const closeDateRaw = colIndices.closeDate >= 0 ? row[colIndices.closeDate] : null;
     const customer = row[colIndices.customer];
     const setupFee = parseFloat(row[colIndices.setupFee]) || 0;
@@ -83,19 +77,14 @@ function getMataDeals() {
     const billingCycle = row[colIndices.billingCycle];
 
     // Skip if missing critical data
-    if (!customer || (!month && !closeDateRaw) || subscription === 0) continue;
+    if (!customer || !closeDateRaw || subscription === 0) continue;
 
-    // Use exact close date if available, otherwise parse from month
+    // Parse the close date from the "Month" column
     let closeDate;
-    if (closeDateRaw) {
-      // Handle various date formats
-      if (closeDateRaw instanceof Date) {
-        closeDate = formatDateToISO(closeDateRaw);
-      } else {
-        closeDate = parseMonthToDate(closeDateRaw);
-      }
+    if (closeDateRaw instanceof Date) {
+      closeDate = formatDateToISO(closeDateRaw);
     } else {
-      closeDate = parseMonthToDate(month);
+      closeDate = parseMonthToDate(closeDateRaw);
     }
 
     // Normalize billing cycle
