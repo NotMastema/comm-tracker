@@ -500,12 +500,6 @@
                             <div className="card-label">Total Commission Earned</div>
                             <div className="card-value">{formatCurrency(totalCommission)}</div>
                         </div>
-                        <div className="card warning">
-                            <div className="card-label">Months Over Threshold</div>
-                            <div className="card-value">
-                                {Object.values(monthlyBreakdown).filter(m => m.commission > 0).length}
-                            </div>
-                        </div>
                     </div>
                     
                     <div className="add-deal-form">
