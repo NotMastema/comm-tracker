@@ -46,13 +46,20 @@ function getMataDeals() {
 
   // Expected columns based on your sheet:
   // Month, Customer, Rep, Total Amount, Setup Fee, Subscription Amount, Plan Type, Billing Cycle, Source, Details
+  // Optional: Close Date (for exact dates)
   const headers = data[0];
   const deals = [];
   let idCounter = 1;
 
-  // Find column indices
+  // Find column indices - try multiple column name variations
   const colIndices = {
     month: headers.indexOf('Month'),
+    closeDate: Math.max(
+      headers.indexOf('Close Date'),
+      headers.indexOf('Closed Date'),
+      headers.indexOf('Date Closed'),
+      headers.indexOf('Date')
+    ),
     customer: headers.indexOf('Customer'),
     rep: headers.indexOf('Rep'),
     setupFee: headers.indexOf('Setup Fee'),
@@ -69,17 +76,27 @@ function getMataDeals() {
     if (rep !== 'Mata') continue;
 
     const month = row[colIndices.month];
+    const closeDateRaw = colIndices.closeDate >= 0 ? row[colIndices.closeDate] : null;
     const customer = row[colIndices.customer];
     const setupFee = parseFloat(row[colIndices.setupFee]) || 0;
     const subscription = parseFloat(row[colIndices.subscription]) || 0;
     const billingCycle = row[colIndices.billingCycle];
 
     // Skip if missing critical data
-    if (!customer || !month || subscription === 0) continue;
+    if (!customer || (!month && !closeDateRaw) || subscription === 0) continue;
 
-    // Convert month name to ISO date (YYYY-MM-DD)
-    // "July 2025" -> "2025-07-01"
-    const closeDate = parseMonthToDate(month);
+    // Use exact close date if available, otherwise parse from month
+    let closeDate;
+    if (closeDateRaw) {
+      // Handle various date formats
+      if (closeDateRaw instanceof Date) {
+        closeDate = formatDateToISO(closeDateRaw);
+      } else {
+        closeDate = parseMonthToDate(closeDateRaw);
+      }
+    } else {
+      closeDate = parseMonthToDate(month);
+    }
 
     // Normalize billing cycle
     const cycle = normalizeBillingCycle(billingCycle);
@@ -98,8 +115,16 @@ function getMataDeals() {
   return deals;
 }
 
+function formatDateToISO(date) {
+  // Convert Date object to YYYY-MM-DD
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function parseMonthToDate(monthString) {
-  // Handle formats like "July 2025", "7/2025", "2025-07", etc.
+  // Handle formats like "July 2025", "7/2025", "2025-07", "7/15/2025", etc.
   if (!monthString) return new Date().toISOString().split('T')[0];
 
   const monthNames = {
@@ -120,11 +145,11 @@ function parseMonthToDate(monthString) {
   // Try to parse as Date object first
   const dateAttempt = new Date(monthString);
   if (!isNaN(dateAttempt.getTime())) {
-    return dateAttempt.toISOString().split('T')[0];
+    return formatDateToISO(dateAttempt);
   }
 
   // Parse "July 2025" format
-  const parts = monthString.toLowerCase().trim().split(/\s+/);
+  const parts = String(monthString).toLowerCase().trim().split(/\s+/);
   if (parts.length === 2) {
     const monthName = parts[0];
     const year = parts[1];
